@@ -14,4 +14,5 @@ EXPOSE 3390
 EXPOSE 22000/tcp
 EXPOSE 21027/udp
 
-CMD ["/usr/local/bin/syncthing", "-home=/var/syncthing", "-no-browser", "-gui-address=0.0.0.0:3390"]
+CMD ["/usr/local/bin/syncthing", "-home=/var/syncthing", "-no-browser", "-gui-address=0.0.0.0:${PORT}"]
+
