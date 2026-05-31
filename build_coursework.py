@@ -5,8 +5,9 @@ a .docx and a reportlab PDF preview. References are restyled to the template's
 GB/T-like numeric format."""
 import re
 from docx import Document
-from docx.shared import Pt, RGBColor
+from docx.shared import Pt, RGBColor, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
+from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
@@ -21,6 +22,67 @@ AUTHOR = "[Your Name]"
 ASSIGNMENT = "Course Assignment"
 INSTRUCTOR = "Dr. Shen Tianyi"
 YEAR = "2025"
+
+# Figure placeholders keyed to a unique anchor phrase in the body text. Each
+# points to a real figure in a cited paper; the user downloads it and pastes it
+# into the box. (No copyrighted artwork is embedded by this script.)
+FIGURES = [
+    dict(n=1, anchor="airborne fraction averaging 44% over 1959",
+         caption="Global carbon budget: anthropogenic CO2 sources and their partitioning among atmospheric growth, the ocean sink and the land sink.",
+         source="Source: Friedlingstein et al., Global Carbon Budget 2024, Earth Syst. Sci. Data, 2025, 17: 965 [2] (open access, CC BY 4.0).",
+         url="https://essd.copernicus.org/articles/17/965/2025/"),
+    dict(n=2, anchor="single largest source of uncertainty in total anthropogenic forcing",
+         caption="Effective radiative forcing of the climate system by component over 1750-2019.",
+         source="Source: IPCC AR6 WGI, Chapter 7, Fig. 7.6 (Forster et al.) [5].",
+         url="https://www.ipcc.ch/report/ar6/wg1/figures/chapter-7/figure-7-6/"),
+    dict(n=3, anchor="were anthropogenic",
+         caption="The global methane budget: natural and anthropogenic CH4 sources and the principal sinks.",
+         source="Source: Saunois et al., The Global Methane Budget 2000-2017, Earth Syst. Sci. Data, 2020, 12: 1561 [7] (open access, CC BY 4.0).",
+         url="https://essd.copernicus.org/articles/12/1561/2020/"),
+    dict(n=4, anchor="governed by the Revelle factor",
+         caption="Change in the column inventory of anthropogenic carbon stored in the ocean.",
+         source="Source: Gruber et al., Science, 2019, 363: 1193 [17] (copyright AAAS; access via publisher/institution).",
+         url="https://www.science.org/doi/10.1126/science.aau5153"),
+    dict(n=5, anchor="shell malformation and dissolution",
+         caption="Ocean acidification: decline in surface-ocean pH and shoaling of the aragonite saturation horizon.",
+         source="Source: IPCC AR6 WGI, Chapter 5, Fig. 5.21 (Canadell et al.) [6].",
+         url="https://www.ipcc.ch/report/ar6/wg1/figures/chapter-5/figure-5-21/"),
+    dict(n=6, anchor="nitrogen loss through denitrification",
+         caption="Global distribution of declining dissolved oxygen in the open ocean and coastal waters.",
+         source="Source: Breitburg et al., Science, 2018, 359: eaam7240 [23] (copyright AAAS; access via publisher/institution).",
+         url="https://www.science.org/doi/10.1126/science.aam7240"),
+    dict(n=7, anchor="cannot buffer anthropogenic emissions on human timescales",
+         caption="The carbonate-silicate cycle and the silicate-weathering negative feedback (the long-term carbon thermostat).",
+         source="Source: Penman et al., Earth-Sci. Rev., 2020, 209: 103298 [33] (copyright Elsevier; access via publisher/institution).",
+         url="https://doi.org/10.1016/j.earscirev.2020.103298"),
+    dict(n=8, anchor="Paris Agreement temperature targets",
+         caption="Permafrost-zone carbon stocks and the permafrost carbon-climate feedback.",
+         source="Source: Schuur et al., Nature, 2015, 520: 171 [46] (copyright Springer Nature; access via publisher/institution).",
+         url="https://www.nature.com/articles/nature14338"),
+    dict(n=9, anchor="and transient climate response of 1.8",
+         caption="Individual climate feedback parameters assessed by IPCC AR6.",
+         source="Source: IPCC AR6 WGI, Chapter 7, Fig. 7.10 (Forster et al.) [5].",
+         url="https://www.ipcc.ch/report/ar6/wg1/figures/chapter-7/figure-7-10/"),
+    dict(n=10, anchor="unresolved scientific disagreement about tipping timing",
+         caption="Global map of climate tipping elements and their estimated temperature thresholds.",
+         source="Source: Armstrong McKay et al., Science, 2022, 377: eabn7950 [65] (copyright AAAS; access via publisher/institution).",
+         url="https://www.science.org/doi/10.1126/science.abn7950"),
+]
+
+_used_figs = set()
+
+def fig_for(text):
+    for f in FIGURES:
+        if f["n"] not in _used_figs and f["anchor"] in text:
+            _used_figs.add(f["n"])
+            return f
+    return None
+
+def inject_callout(text, n):
+    t = text.rstrip()
+    if t.endswith("."):
+        return t[:-1] + f" (Fig. {n})."
+    return t + f" (Fig. {n})"
 
 # ----------------------------------------------------------------- read source
 with open(SRC, encoding="utf-8") as f:
@@ -232,6 +294,32 @@ run(kp, "Keywords: ", 12, bold=True)
 emit(kp, keywords)
 doc.add_page_break()
 
+def set_cell_border(cell):
+    tcPr = cell._tc.get_or_add_tcPr()
+    borders = OxmlElement("w:tcBorders")
+    for edge in ("top", "left", "bottom", "right"):
+        e = OxmlElement(f"w:{edge}")
+        for k, v in (("w:val", "single"), ("w:sz", "8"), ("w:space", "0"), ("w:color", "999999")):
+            e.set(qn(k), v)
+        borders.append(e)
+    tcPr.append(borders)
+
+def add_figure_docx(f):
+    tbl = doc.add_table(rows=1, cols=1)
+    tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    cell = tbl.cell(0, 0); cell.width = Inches(6.0)
+    set_cell_border(cell)
+    cp = cell.paragraphs[0]; cp.alignment = C
+    cp.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
+    cp.paragraph_format.space_before = Pt(46); cp.paragraph_format.space_after = Pt(46)
+    r = cp.add_run(f"[ Fig. {f['n']} — paste figure here ]")
+    r.italic = True; r.font.size = Pt(10); r.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+    cap = para(J, before=2, after=10, spacing=WD_LINE_SPACING.SINGLE)
+    run(cap, f"Fig. {f['n']}. ", 9.5, bold=True)
+    run(cap, f["caption"] + " ", 9.5)
+    run(cap, f["source"], 9.5, italic=True)
+    run(cap, "  Download: " + f["url"], 9.5)
+
 # --- body
 for kind, text in body_blocks:
     if kind == "h1":
@@ -245,9 +333,12 @@ for kind, text in body_blocks:
         for r in p.runs:
             r.bold = True; r.font.size = Pt(12)
     else:
+        fig = fig_for(text)
         p = para(J)
         p.paragraph_format.first_line_indent = Pt(18)
-        add_runs(p, text)
+        add_runs(p, inject_callout(text, fig["n"]) if fig else text)
+        if fig:
+            add_figure_docx(fig)
 
 # --- references
 doc.add_page_break()
@@ -267,7 +358,8 @@ from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_RIGHT
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import (BaseDocTemplate, PageTemplate, Frame,
                                 Paragraph, Spacer, PageBreak,
-                                HRFlowable)
+                                HRFlowable, Table, TableStyle)
+from reportlab.lib import colors
 
 def pesc(t):
     t = t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -293,7 +385,18 @@ S = {
     "body": ParagraphStyle("body", fontName="Times-Roman", fontSize=12, leading=18, alignment=TA_JUSTIFY, firstLineIndent=18),
     "kw": ParagraphStyle("kw", fontName="Times-Roman", fontSize=12, leading=18, alignment=TA_JUSTIFY),
     "ref": ParagraphStyle("ref", fontName="Times-Roman", fontSize=11, leading=15, leftIndent=22, firstLineIndent=-22, spaceAfter=4, alignment=TA_JUSTIFY),
+    "phbox": ParagraphStyle("phbox", fontName="Times-Italic", fontSize=10, leading=14, alignment=TA_CENTER, textColor=colors.grey),
+    "cap": ParagraphStyle("cap", fontName="Times-Roman", fontSize=9, leading=12, alignment=TA_JUSTIFY, spaceBefore=3, spaceAfter=8),
 }
+
+def fig_flowables(f, width):
+    box = Table([[Paragraph(f"[ Fig. {f['n']} — paste figure here ]", S["phbox"])]],
+                colWidths=[width], rowHeights=[150])
+    box.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.8, colors.grey),
+                             ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
+    cap = Paragraph(f"<b>Fig. {f['n']}.</b> {pesc(f['caption'])} <i>{pesc(f['source'])}</i> "
+                    f"Download: {f['url']}", S["cap"])
+    return [Spacer(1, 6), box, cap]
 
 story = [Spacer(1, 20)]
 story.append(Paragraph(pesc(UNIVERSITY), S["uni"]))
@@ -319,9 +422,17 @@ story.append(Spacer(1, 10))
 story.append(Paragraph("<b>Keywords:</b> " + pesc(keywords), S["kw"]))
 story.append(PageBreak())
 
+PDF_W = A4[0] - 50 * mm
+_used_figs.clear()
 for kind, text in body_blocks:
-    style = {"h1": "h1", "h2": "h2"}.get(kind, "body")
-    story.append(Paragraph(pesc(text), S[style]))
+    if kind in ("h1", "h2"):
+        story.append(Paragraph(pesc(text), S[kind]))
+    else:
+        fig = fig_for(text)
+        story.append(Paragraph(pesc(inject_callout(text, fig["n"]) if fig else text), S["body"]))
+        if fig:
+            for fl in fig_flowables(fig, PDF_W):
+                story.append(fl)
 
 story.append(PageBreak())
 story.append(Paragraph("References", S["head"]))
