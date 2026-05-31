@@ -1,8 +1,8 @@
 # Review on Chemical Processes Across the Atmosphere, Hydrosphere and Lithosphere and Their Mutual Feedback Mechanisms with Global Climate Change
 
-[First Author]ᵃ,*, [Second Author]ᵇ, [Third Author]ᵃ  
-ᵃ [Department, Institution, City, Postal code, Country]  
-ᵇ [Department, Institution, City, Postal code, Country]  
+[First Author]^a,*, [Second Author]^b, [Third Author]^a  
+^a [Department, Institution, City, Postal code, Country]  
+^b [Department, Institution, City, Postal code, Country]  
 * Corresponding author. E-mail address: [corresponding.author@institution.edu] ([First Author]).  
 ORCID: [0000-0000-0000-0000]  
 

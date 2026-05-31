@@ -5,7 +5,7 @@ numbers, page numbers, title page, Highlights, structured front matter,
 abbreviations, and declaration sections."""
 import re
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.enum.section import WD_SECTION
 from docx.oxml.ns import qn
@@ -52,9 +52,9 @@ blocks = []
 
 # ---- Title page
 blocks.append(("title", title))
-blocks.append(("authors", "[First Author]ᵃ,*, [Second Author]ᵇ, [Third Author]ᵃ"))
-blocks.append(("affil", "ᵃ [Department, Institution, City, Postal code, Country]"))
-blocks.append(("affil", "ᵇ [Department, Institution, City, Postal code, Country]"))
+blocks.append(("authors", "[First Author]^a,*, [Second Author]^b, [Third Author]^a"))
+blocks.append(("affil", "^a [Department, Institution, City, Postal code, Country]"))
+blocks.append(("affil", "^b [Department, Institution, City, Postal code, Country]"))
 blocks.append(("corr", "* Corresponding author. E-mail address: [corresponding.author@institution.edu] ([First Author])."))
 blocks.append(("corr", "ORCID: [0000-0000-0000-0000]"))
 blocks.append(("pagebreak", ""))
@@ -100,8 +100,7 @@ abbrev = [
     ("TCR", "transient climate response"),
 ]
 blocks.append(("h1", "Abbreviations"))
-for ab, full in abbrev:
-    blocks.append(("abbr", f"{ab}\t{full}"))
+blocks.append(("abbrtable", abbrev))
 blocks.append(("pagebreak", ""))
 
 # ---- Main text (parse body)
@@ -142,17 +141,45 @@ blocks += parse_content(ref_lines, refs=True)
 
 # ---------------------------------------------------------------- docx render
 INLINE = re.compile(r"(\*\*.+?\*\*|\*.+?\*)")
+# caret superscripts (^-2, ^5, ^1D, ^87Sr) and chemical formulae needing subscripts
+TOKEN = re.compile(r"\^(-?[0-9A-Za-z]+)|(CO2|CH4|N2O|SO2|NO2|CaCO3|H2O|O2|N2)")
+
+def emit(p, text, bold=False, italic=False):
+    """Emit runs, rendering caret-exponents as superscript and chemical
+    subscripts (the digits in CO2, CH4, ...) as subscript."""
+    pos = 0
+    for m in TOKEN.finditer(text):
+        if m.start() > pos:
+            r = p.add_run(text[pos:m.start()]); r.bold = bold; r.italic = italic
+        if m.group(1) is not None:                      # ^superscript
+            sup = re.match(r"(-?\d+)(.*)", m.group(1))
+            if sup:
+                r = p.add_run(sup.group(1)); r.font.superscript = True
+                r.bold = bold; r.italic = italic
+                if sup.group(2):
+                    r = p.add_run(sup.group(2)); r.bold = bold; r.italic = italic
+            else:
+                r = p.add_run(m.group(1)); r.font.superscript = True
+                r.bold = bold; r.italic = italic
+        else:                                           # chemical formula
+            for ch in m.group(2):
+                r = p.add_run(ch); r.bold = bold; r.italic = italic
+                if ch.isdigit():
+                    r.font.subscript = True
+        pos = m.end()
+    if pos < len(text):
+        r = p.add_run(text[pos:]); r.bold = bold; r.italic = italic
 
 def add_runs(p, text, base_size=12):
     for tok in INLINE.split(text):
         if not tok:
             continue
         if tok.startswith("**") and tok.endswith("**"):
-            r = p.add_run(tok[2:-2]); r.bold = True
+            emit(p, tok[2:-2], bold=True)
         elif tok.startswith("*") and tok.endswith("*"):
-            r = p.add_run(tok[1:-1]); r.italic = True
+            emit(p, tok[1:-1], italic=True)
         else:
-            p.add_run(tok)
+            emit(p, tok)
 
 doc = Document()
 st = doc.styles["Normal"]
@@ -164,6 +191,13 @@ st.paragraph_format.space_after = Pt(0)
 def single(p):
     p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
 
+def styled_emit(p, text, size, italic=False):
+    emit(p, text, italic=italic)
+    for r in p.runs:
+        r.font.size = Pt(size)
+        if italic:
+            r.italic = True
+
 for kind, text in blocks:
     if kind == "title":
         p = doc.add_paragraph(); single(p); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -171,15 +205,15 @@ for kind, text in blocks:
         p.paragraph_format.space_after = Pt(18)
     elif kind == "authors":
         p = doc.add_paragraph(); single(p); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        r = p.add_run(text); r.font.size = Pt(12)
+        styled_emit(p, text, 12)
         p.paragraph_format.space_after = Pt(8)
     elif kind == "affil":
         p = doc.add_paragraph(); single(p); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        r = p.add_run(text); r.italic = True; r.font.size = Pt(10)
+        styled_emit(p, text, 10, italic=True)
         p.paragraph_format.space_after = Pt(2)
     elif kind == "corr":
         p = doc.add_paragraph(); single(p); p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        r = p.add_run(text); r.font.size = Pt(10)
+        styled_emit(p, text, 10)
         p.paragraph_format.space_after = Pt(2)
     elif kind == "pagebreak":
         doc.add_page_break()
@@ -194,17 +228,21 @@ for kind, text in blocks:
     elif kind == "bullet":
         p = doc.add_paragraph(); single(p)
         p.paragraph_format.left_indent = Pt(18); p.paragraph_format.space_after = Pt(2)
-        p.add_run("•  " + text)
+        p.add_run("•  "); emit(p, text)
     elif kind == "kw":
         p = doc.add_paragraph(); single(p)
         p.paragraph_format.space_before = Pt(6); p.paragraph_format.space_after = Pt(6)
         r = p.add_run("Keywords: "); r.bold = True
         p.add_run(text)
-    elif kind == "abbr":
-        ab, full = text.split("\t", 1)
-        p = doc.add_paragraph(); single(p); p.paragraph_format.space_after = Pt(0)
-        r = p.add_run(ab); r.bold = True
-        p.add_run("\t" + full)
+    elif kind == "abbrtable":
+        tbl = doc.add_table(rows=0, cols=2)
+        for ab, full in text:
+            c = tbl.add_row().cells
+            p0 = c[0].paragraphs[0]; single(p0); p0.paragraph_format.space_after = Pt(2)
+            r0 = p0.add_run(ab); r0.bold = True; r0.font.size = Pt(11)
+            p1 = c[1].paragraphs[0]; single(p1); p1.paragraph_format.space_after = Pt(2)
+            r1 = p1.add_run(full); r1.font.size = Pt(11)
+            c[0].width = Inches(1.4); c[1].width = Inches(4.6)
     elif kind == "ref":
         p = doc.add_paragraph()
         p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.SINGLE
@@ -255,9 +293,9 @@ for kind, text in blocks:
         md.append(f"- {text}")
     elif kind == "kw":
         md.append(f"\n**Keywords:** {text}\n")
-    elif kind == "abbr":
-        ab, full = text.split("\t", 1)
-        md.append(f"**{ab}** — {full}  ")
+    elif kind == "abbrtable":
+        for ab, full in text:
+            md.append(f"**{ab}** — {full}  ")
     elif kind == "ref":
         md.append(text + "\n")
     else:
